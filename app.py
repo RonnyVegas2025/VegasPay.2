@@ -187,7 +187,7 @@ def cruzar_realizado(novos: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
 # =========================
 # Navegação (sidebar)
 # =========================
-page = st.sidebar.radio("Navegação", ["📤 Upload", "📊 Vendas & MDR", "🆕 Comércios"])
+page = st.sidebar.radio("Navegação", ["📤 Upload", "📊 Vendas & MDR", "🆕 Novos Comércios"])
 
 # =========================
 # Página: Upload
