@@ -224,7 +224,7 @@ if page == "📤 Upload":
 # Página: Vendas & MDR (Bloco 1)
 # =========================
 elif page == "📊 Vendas & MDR":
-    st.title("📊 Vendas & MDR — Bloco 1")
+    st.title("📊 Gestão e Acompanhamento — Vegas Pay")
 
     df = st.session_state.get("fechamento_df")
 
