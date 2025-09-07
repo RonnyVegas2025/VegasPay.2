@@ -187,7 +187,7 @@ def cruzar_realizado(novos: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
 # =========================
 # Navegação (sidebar)
 # =========================
-page = st.sidebar.radio("Navegação", ["📤 Upload", "📊 Vendas & MDR", "🆕 Novos Comércios"])
+page = st.sidebar.radio("Navegação", ["📤 Upload", "📊 Vendas & MDR", "🆕 Comércios"])
 
 # =========================
 # Página: Upload
@@ -305,7 +305,7 @@ elif page == "📊 Vendas & MDR":
 # Página: Novos Comércios (Bloco 2)
 # =========================
 elif page == "🆕 Novos Comércios":
-    st.title("🆕 Novos Comércios — Bloco 2")
+    st.title("🆕 Gestão de Comércios")
 
     df_nov = st.session_state.get("novos_df")
     if df_nov is None:
