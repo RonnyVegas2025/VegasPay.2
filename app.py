@@ -141,39 +141,48 @@ def resumo_vendas(base: pd.DataFrame):
     return res_mes, res_vend, res_bp
 
 def cruzar_realizado(novos: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
-    # Tenta casar Realizado (R$) por CNPJ+Mes; se não tiver CNPJ no fechamento, tenta por nome fantasia.
+    """Casar Realizado (R$) por CNPJ+Mes; se não tiver CNPJ no fechamento, tenta por nome fantasia.
+       Evita conflito de nomes usando coluna auxiliar 'Realizado_Match_R$' no merge.
+    """
     base = novos.copy()
     base["Realizado_R$"] = 0.0
 
-    if fech is None or len(fech)==0:
+    if fech is None or len(fech) == 0:
         return base
 
     # 1) Por CNPJ + Mes
-    if all(c in fech.columns for c in ["CNPJ","Mes","Valor"]):
-        f2 = fech[["CNPJ","Mes","Valor"]].copy()
-        f2["CNPJ"] = f2["CNPJ"].astype(str).str.replace(r"\D","", regex=True)
-        g = f2.groupby(["Mes","CNPJ"], as_index=False)["Valor"].sum().rename(columns={"Valor":"Realizado_R$"})
-        base = base.merge(g, how="left", on=["Mes","CNPJ"])
-        base["Realizado_R$"] = base["Realizado_R$"].fillna(0.0)
-        return base
+    if {"CNPJ", "Mes", "Valor"}.issubset(fech.columns):
+        f2 = fech[["CNPJ", "Mes", "Valor"]].copy()
+        f2["CNPJ"] = f2["CNPJ"].astype(str).str.replace(r"\D", "", regex=True)
+        g = (f2.groupby(["Mes", "CNPJ"], as_index=False)["Valor"]
+               .sum().rename(columns={"Valor": "Realizado_Match_R$"}))
+        m = base.merge(g, how="left", on=["Mes", "CNPJ"])
+        m["Realizado_R$"] = m["Realizado_R$"].fillna(0.0) + m["Realizado_Match_R$"].fillna(0.0)
+        m.drop(columns=["Realizado_Match_R$"], inplace=True)
+        return m
 
     # 2) Por Fantasia/Estabelecimento (normalizando texto)
-    name_cols = [c for c in ["FANTASIA","Nome_Fantasia","Estabelecimento"] if c in novos.columns]
-    fech_name_col = next((c for c in ["Nome_Fantasia","Estabelecimento"] if c in fech.columns), None)
+    name_cols = [c for c in ["FANTASIA", "Nome_Fantasia", "Estabelecimento"] if c in base.columns]
+    fech_name_col = next((c for c in ["Nome_Fantasia", "Estabelecimento"] if c in fech.columns), None)
 
-    if name_cols and fech_name_col and "Mes" in fech.columns and "Valor" in fech.columns:
+    if name_cols and fech_name_col and {"Mes", "Valor"}.issubset(fech.columns):
         ncol = name_cols[0]
-        f2 = fech[[fech_name_col,"Mes","Valor"]].copy()
-        f2[fech_name_col+"_NORM"] = strip_accents_upper(f2[fech_name_col])
-        g = f2.groupby(["Mes",fech_name_col+"_NORM"], as_index=False)["Valor"].sum().rename(columns={"Valor":"Realizado_R$"})
+        f2 = fech[[fech_name_col, "Mes", "Valor"]].copy()
+        f2[fech_name_col + "_NORM"] = strip_accents_upper(f2[fech_name_col])
+        g = (f2.groupby(["Mes", fech_name_col + "_NORM"], as_index=False)["Valor"]
+               .sum().rename(columns={"Valor": "Realizado_Match_R$"}))
 
-        b2 = base.copy()
-        b2[ncol+"_NORM"] = strip_accents_upper(b2[ncol])
-        b2 = b2.merge(g, how="left", left_on=["Mes", ncol+"_NORM"], right_on=["Mes", fech_name_col+"_NORM"])
-        b2["Realizado_R$"] = b2["Realizado_R$"].fillna(0.0)
-        base = b2.drop(columns=[col for col in [ncol+"_NORM",fech_name_col+"_NORM"] if col in b2.columns], errors="ignore")
+        m = base.copy()
+        m[ncol + "_NORM"] = strip_accents_upper(m[ncol])
+        m = m.merge(g, how="left",
+                    left_on=["Mes", ncol + "_NORM"],
+                    right_on=["Mes", fech_name_col + "_NORM"])
+        m["Realizado_R$"] = m["Realizado_R$"].fillna(0.0) + m["Realizado_Match_R$"].fillna(0.0)
+        m.drop(columns=[ncol + "_NORM", fech_name_col + "_NORM", "Realizado_Match_R$"], errors="ignore", inplace=True)
+        return m
 
     return base
+
 
 # =========================
 # Navegação (sidebar)
