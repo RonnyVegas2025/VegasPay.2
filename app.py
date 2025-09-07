@@ -305,7 +305,7 @@ elif page == "📊 Vendas & MDR":
 # Página: Novos Comércios (Bloco 2)
 # =========================
 elif page == "🆕 Novos Comércios":
-    st.title("🆕 Gestão de Comércios")
+    st.title("🆕 Novos Comércios")
 
     df_nov = st.session_state.get("novos_df")
     if df_nov is None:
