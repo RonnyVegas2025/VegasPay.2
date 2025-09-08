@@ -9,7 +9,6 @@ from pathlib import Path
 # Config
 # =======================================
 st.set_page_config(page_title="Gestão e Acompanhamento — Vegas Pay", layout="wide")
-
 APP_TITLE = "Gestão e Acompanhamento — Vegas Pay"
 
 BASE_DIR = Path(__file__).parent
@@ -159,12 +158,9 @@ def resumo_vendas(base: pd.DataFrame):
     return res_mes, res_vend, res_bp
 
 def cruzar_realizado(novos: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
-    """Casar Realizado (R$) por CNPJ+Mes; se não tiver CNPJ no fechamento, tenta por nome fantasia.
-       Usa coluna auxiliar 'Realizado_Match_R$' para evitar conflitos de nomes.
-    """
+    """Casar Realizado (R$) por CNPJ+Mes; se não tiver CNPJ no fechamento, tenta por nome fantasia."""
     base = novos.copy()
     base["Realizado_R$"] = 0.0
-
     if fech is None or len(fech) == 0:
         return base
 
@@ -179,7 +175,7 @@ def cruzar_realizado(novos: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
         m.drop(columns=["Realizado_Match_R$"], inplace=True)
         return m
 
-    # 2) Por Fantasia/Estabelecimento
+    # 2) Por Nome Fantasia
     name_cols = [c for c in ["FANTASIA", "Nome_Fantasia"] if c in base.columns]
     fech_name_col = next((c for c in ["Nome_Fantasia"] if c in fech.columns), None)
 
@@ -202,30 +198,22 @@ def cruzar_realizado(novos: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
     return base
 
 def movimentacao_por_comercio(novos_filtrado: pd.DataFrame, fech: pd.DataFrame) -> pd.DataFrame:
-    """Tabela de movimentação financeira por comércio (respeita os filtros de Novos).
-       Junta por CNPJ (prioridade) ou por Nome_Fantasia.
-       Retorna: Vendas Brutas, MDR Bruto R$, MDR Líquido R$, e % sobre as vendas.
-    """
     if fech is None or len(fech) == 0 or len(novos_filtrado) == 0:
         return pd.DataFrame()
 
     fe = normalize_fechamento(fech.copy())
-    fe_cols_ok = {"Valor", "MDR (R$) Bruto", "Total MDR (R$) Liquido Vegas Pay"}.issubset(fe.columns)
-    if not fe_cols_ok:
+    if not {"Valor","MDR (R$) Bruto","Total MDR (R$) Liquido Vegas Pay"}.issubset(fe.columns):
         return pd.DataFrame()
 
-    # normaliza chaves
     fe["CNPJ"] = fe.get("CNPJ", pd.Series([""]*len(fe))).astype(str).str.replace(r"\D", "", regex=True)
     novos = novos_filtrado.copy()
     novos["CNPJ"] = novos.get("CNPJ", pd.Series([""]*len(novos))).astype(str).str.replace(r"\D", "", regex=True)
 
-    # 1) agregação por CNPJ no fechamento
     agg_cnpj = (fe.groupby("CNPJ", as_index=False)
                   .agg(Vendas_Brutas_R$=("Valor","sum"),
                        MDR_Bruto_R$=("MDR (R$) Bruto","sum"),
                        MDR_Liq_R$=("Total MDR (R$) Liquido Vegas Pay","sum")))
 
-    # 2) agregação por nome no fechamento (se houver)
     if "Nome_Fantasia" in fe.columns:
         fe["Nome_FANT_NORM"] = strip_accents_upper(fe["Nome_Fantasia"])
         agg_nome = (fe.groupby("Nome_FANT_NORM", as_index=False)
@@ -235,37 +223,43 @@ def movimentacao_por_comercio(novos_filtrado: pd.DataFrame, fech: pd.DataFrame) 
     else:
         agg_nome = pd.DataFrame(columns=["Nome_FANT_NORM","Vendas_Brutas_R$","MDR_Bruto_R$","MDR_Liq_R$"])
 
-    # 3) monta base de Novos com chaves de match
     base = novos[["FANTASIA","CNPJ","Vendedor","Cidade","UF","Categoria_MCC"]].copy()
     if "FANTASIA" not in base.columns:
         base["FANTASIA"] = novos.get("Nome_Fantasia", "")
     base["Nome_FANT_NORM"] = strip_accents_upper(base["FANTASIA"])
 
-    # 4) merge por CNPJ (prioritário) e depois completa por Nome
     out = base.merge(agg_cnpj, how="left", on="CNPJ")
     out = out.merge(agg_nome, how="left", on="Nome_FANT_NORM", suffixes=("", "_via_nome"))
 
-    # escolhe o melhor disponível entre CNPJ e nome
     for col in ["Vendas_Brutas_R$","MDR_Bruto_R$","MDR_Liq_R$"]:
         via_nome = col + "_via_nome"
         out[col] = out[col].fillna(out.get(via_nome))
         out.drop(columns=[c for c in [via_nome] if c in out.columns], inplace=True)
 
-    # percentuais
     out["MDR_Bruto_%"] = np.where(out["Vendas_Brutas_R$"]>0, out["MDR_Bruto_R$"]/out["Vendas_Brutas_R$"]*100, 0.0)
     out["MDR_Liq_%"]   = np.where(out["Vendas_Brutas_R$"]>0, out["MDR_Liq_R$"]/out["Vendas_Brutas_R$"]*100, 0.0)
 
-    # ordena por maior venda
     out = out.sort_values("Vendas_Brutas_R$", ascending=False, ignore_index=True)
     return out
 
 # =======================================
-# Data bootstrap (repo by default)
+# Data bootstrap (repo by default) — SAFE
 # =======================================
 @st.cache_data(show_spinner=False)
 def carregar_fixos():
-    f  = normalize_fechamento(pd.read_excel(FECH_PATH))
-    n  = normalize_novos(pd.read_excel(NOVOS_PATH))
+    f, n = pd.DataFrame(), pd.DataFrame()
+    # Fechamento (opcional)
+    try:
+        if FECH_PATH.exists():
+            f = normalize_fechamento(pd.read_excel(FECH_PATH))
+    except Exception as e:
+        st.sidebar.warning(f"Fechamento.xlsx não pôde ser lido: {e}")
+    # Novos (opcional)
+    try:
+        if NOVOS_PATH.exists():
+            n = normalize_novos(pd.read_excel(NOVOS_PATH))
+    except Exception as e:
+        st.sidebar.warning(f"Novos_Comercios.xlsx não pôde ser lido: {e}")
     return f, n
 
 def ensure_data_loaded():
@@ -273,7 +267,7 @@ def ensure_data_loaded():
         f, n = carregar_fixos()
         st.session_state["fechamento_df"] = f
         st.session_state["novos_df"]      = n
-        st.session_state["data_source"]   = "repo"
+        st.session_state["data_source"]   = "repo" if (len(f)>0 or len(n)>0) else "empty"
 
 ensure_data_loaded()
 
@@ -281,10 +275,9 @@ ensure_data_loaded()
 # Auth (admin)
 # =======================================
 def check_admin() -> bool:
-    """Senha em Streamlit Cloud (Settings → Secrets): ADMIN_PASS=..."""
     saved = st.secrets.get("ADMIN_PASS", "")
     if not saved:
-        return False
+        return True  # sem senha definida => libera para facilitar durante setup
     if "is_admin" in st.session_state:
         return st.session_state["is_admin"]
     with st.sidebar.expander("🔐 Admin"):
@@ -299,7 +292,9 @@ def check_admin() -> bool:
 pages = ["📤 Upload", "📊 Vendas & MDR", "🆕 Novos Comércios"]
 page = st.sidebar.radio("Navegação", pages)
 
-fonte = "Repositório (dados/)" if st.session_state.get("data_source") == "repo" else "Uploads da sessão"
+fonte = ("Repositório (dados/)" if st.session_state.get("data_source") == "repo"
+         else "Uploads da sessão" if st.session_state.get("data_source") == "session"
+         else "Sem dados ainda")
 st.sidebar.caption(f"Fonte: **{fonte}**")
 
 # =======================================
@@ -309,8 +304,10 @@ if page == "📤 Upload":
     header("📤 Upload (admin)")
 
     if not check_admin():
-        st.info("Área restrita. Para atualizar os dados semanais, entre com a senha do admin no menu lateral.")
+        st.info("Área restrita. Entre com a senha do admin no menu lateral.")
         st.stop()
+
+    st.write("Você pode **enviar os dois arquivos** ou **recarregar os do repositório** (pasta `dados/`).")
 
     cA, cB = st.columns(2)
     with cA:
@@ -318,8 +315,8 @@ if page == "📤 Upload":
             f, n = carregar_fixos()
             st.session_state["fechamento_df"] = f
             st.session_state["novos_df"]      = n
-            st.session_state["data_source"]   = "repo"
-            st.success("Carregado a partir de dados/ (repositório).")
+            st.session_state["data_source"]   = "repo" if (len(f)>0 or len(n)>0) else "empty"
+            st.success("Dados recarregados.")
 
     with cB:
         buf = BytesIO()
@@ -351,16 +348,12 @@ if page == "📤 Upload":
                 st.error(f"Novos Comércios: erro ao ler ({e})")
         if ok:
             st.session_state["data_source"] = "session"
-            st.success("Uploads carregados (somente nesta sessão). Abra outras páginas para visualizar.")
+            st.success("Uploads carregados (somente nesta sessão). Abra as outras páginas para visualizar.")
         else:
             st.info("Envie pelo menos um dos arquivos.")
 
-    st.info("""
-**Como publicar para todos (1x/semana):**
-1) No GitHub, substitua os arquivos em **`dados/`** mantendo os nomes:
-   `Fechamento.xlsx` e `Novos_Comercios.xlsx`.
-2) Volte aqui e clique **🔄 Recarregar dados do repositório**.
-""")
+    if not FECH_PATH.exists() or not NOVOS_PATH.exists():
+        st.info("Dica: crie a pasta **`dados/`** no repositório e coloque `Fechamento.xlsx` e `Novos_Comercios.xlsx`.")
 
 # =======================================
 # Página: Vendas & MDR (Bloco 1)
@@ -368,9 +361,9 @@ if page == "📤 Upload":
 elif page == "📊 Vendas & MDR":
     header("📊 Vendas & MDR — Bloco 1")
 
-    df = st.session_state.get("fechamento_df")
+    df = st.session_state.get("fechamento_df", pd.DataFrame())
     if df is None or len(df)==0:
-        st.info("Nenhum dado carregado. Carregue via repositório (dados/) ou Upload (admin).")
+        st.info("Nenhum dado carregado. Use a página **Upload** para enviar ou publique em `dados/Fechamento.xlsx`.")
         st.stop()
 
     cols = st.columns(5)
@@ -446,11 +439,11 @@ elif page == "📊 Vendas & MDR":
 elif page == "🆕 Novos Comércios":
     header("🆕 Novos Comércios — Bloco 2")
 
-    df_nov = st.session_state.get("novos_df")
-    df_fech = st.session_state.get("fechamento_df")
+    df_nov = st.session_state.get("novos_df", pd.DataFrame())
+    df_fech = st.session_state.get("fechamento_df", pd.DataFrame())
 
     if df_nov is None or len(df_nov)==0:
-        st.info("Nenhum dado de Novos Comércios carregado. Carregue via repositório (dados/) ou Upload (admin).")
+        st.info("Nenhum dado de Novos Comércios carregado. Use a página **Upload** ou publique em `dados/Novos_Comercios.xlsx`.")
         st.stop()
 
     base = cruzar_realizado(df_nov, df_fech)
@@ -510,19 +503,17 @@ elif page == "🆕 Novos Comércios":
         meta_col: fmt_brl if meta_col else fmt_brl
     }), use_container_width=True)
 
-    # -------- Nova Tabela: Movimentação Financeira --------
+    # -------- Movimentação --------
     st.subheader("Movimentação Financeira — Comércios filtrados")
     mov = movimentacao_por_comercio(f, df_fech)
     if mov.empty:
         st.info("Sem movimentação encontrada no Fechamento para os comércios filtrados.")
     else:
-        mov_fmt = mov.copy()
-        st.dataframe(mov_fmt.style.format({
+        st.dataframe(mov.style.format({
             "Vendas_Brutas_R$": fmt_brl, "MDR_Bruto_R$": fmt_brl,
             "MDR_Liq_R$": fmt_brl, "MDR_Bruto_%": fmt_pct, "MDR_Liq_%": fmt_pct
         }), use_container_width=True)
 
-        # download
         buff2 = BytesIO()
         with pd.ExcelWriter(buff2, engine="openpyxl") as writer:
             f.to_excel(writer, sheet_name="Novos_Filtrado", index=False)
