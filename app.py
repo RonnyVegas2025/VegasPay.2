@@ -210,16 +210,16 @@ def movimentacao_por_comercio(novos_filtrado: pd.DataFrame, fech: pd.DataFrame) 
     novos["CNPJ"] = novos.get("CNPJ", pd.Series([""]*len(novos))).astype(str).str.replace(r"\D", "", regex=True)
 
     agg_cnpj = (fe.groupby("CNPJ", as_index=False)
-                  .agg(Vendas_Brutas_R$=("Valor","sum"),
-                       MDR_Bruto_R$=("MDR (R$) Bruto","sum"),
-                       MDR_Liq_R$=("Total MDR (R$) Liquido Vegas Pay","sum")))
+                  .agg(**{"Vendas_Brutas_R$": ("Valor","sum"),
+                       "MDR_Bruto_R$": ("MDR (R$) Bruto","sum"),
+                       "MDR_Liq_R$": ("Total MDR (R$) Liquido Vegas Pay","sum")}))
 
     if "Nome_Fantasia" in fe.columns:
         fe["Nome_FANT_NORM"] = strip_accents_upper(fe["Nome_Fantasia"])
         agg_nome = (fe.groupby("Nome_FANT_NORM", as_index=False)
-                      .agg(Vendas_Brutas_R$=("Valor","sum"),
-                           MDR_Bruto_R$=("MDR (R$) Bruto","sum"),
-                           MDR_Liq_R$=("Total MDR (R$) Liquido Vegas Pay","sum")))
+                      .agg(**{"Vendas_Brutas_R$": ("Valor","sum"),
+                           "MDR_Bruto_R$": ("MDR (R$) Bruto","sum"),
+                           "MDR_Liq_R$": ("Total MDR (R$) Liquido Vegas Pay","sum")}))
     else:
         agg_nome = pd.DataFrame(columns=["Nome_FANT_NORM","Vendas_Brutas_R$","MDR_Bruto_R$","MDR_Liq_R$"])
 
